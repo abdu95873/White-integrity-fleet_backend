@@ -3,7 +3,8 @@
   "installCommand": "PRISMA_SKIP_POSTINSTALL_GENERATE=true npm install",
   "buildCommand": "npm run build",
   "env": {
-    "PRISMA_SKIP_POSTINSTALL_GENERATE": "true"
+    "PRISMA_SKIP_POSTINSTALL_GENERATE": "true",
+    "FRONTEND_URL": "https://white-integrity-fleet-frontend.vercel.app"
   },
   "rewrites": [
     {
