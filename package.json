@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -13,6 +15,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
+    "prisma": "^6.1.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -21,8 +24,5 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "prisma": "^6.1.0"
   }
 }
