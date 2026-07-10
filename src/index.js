@@ -8,6 +8,7 @@ import reportRoutes from "./routes/reports.js";
 import accountsRoutes from "./routes/accounts.js";
 import settingsRoutes from "./routes/settings.js";
 import uploadRoutes from "./routes/uploads.js";
+import courierImportRoutes from "./routes/courierImport.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 // Local .env should win over stale shell env vars (e.g. after commenting DATABASE_URL).
@@ -55,6 +56,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/couriers", courierRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/courier-import", courierImportRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/accounts", accountsRoutes);

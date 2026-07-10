@@ -1,12 +1,18 @@
 import ExcelJS from "exceljs";
 import { prisma } from "../lib/prisma.js";
 import { parseDateOnly, toDateOnlyString } from "../lib/dateOnly.js";
+import { resolveUserReceivable } from "./calculations.js";
 import { formatPaymentRecord } from "./paymentFormat.js";
 
 function formatRangeLabel(start, end) {
   const fmt = (d) =>
     `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
   return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function formatFileDate(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatExportDate(value) {
@@ -23,14 +29,16 @@ export function resolveDateRange({ period, month, year, weekStart, weekEnd }) {
     const m = month ?? now.getMonth() + 1;
     const start = new Date(y, m - 1, 1, 0, 0, 0, 0);
     const end = new Date(y, m, 0, 23, 59, 59, 999);
-    return { start, end, label: `${y}-${String(m).padStart(2, "0")}` };
+    const label = `${y}-${String(m).padStart(2, "0")}`;
+    return { start, end, label, fileLabel: label };
   }
 
   if (period === "yearly") {
     const y = year ?? now.getFullYear();
     const start = new Date(y, 0, 1, 0, 0, 0, 0);
     const end = new Date(y, 11, 31, 23, 59, 59, 999);
-    return { start, end, label: String(y) };
+    const label = String(y);
+    return { start, end, label, fileLabel: label };
   }
 
   // weekly — use explicit start/end when provided, else 7 days ending on weekEnd
@@ -41,11 +49,24 @@ export function resolveDateRange({ period, month, year, weekStart, weekEnd }) {
     start.setDate(start.getDate() - 6);
   }
   start.setHours(0, 0, 0, 0);
+  const label = formatRangeLabel(start, end);
   return {
     start,
     end,
-    label: formatRangeLabel(start, end),
+    label,
+    fileLabel: `${formatFileDate(start)}_to_${formatFileDate(end)}`,
   };
+}
+
+function resolveRecordReceivable(record, formatted) {
+  const stored = Number(formatted.userReceivableAmount ?? 0);
+  if (stored > 0) return stored;
+
+  return resolveUserReceivable(
+    record.courier.source,
+    record.rawExcelData,
+    formatted.totalPayable
+  );
 }
 
 export async function fetchReportData(params) {
@@ -96,6 +117,7 @@ export async function fetchReportData(params) {
         taxAmount: formatted.taxAmount,
         calculatedGrandPayment: formatted.calculatedGrandPayment,
         previousDueAmount: formatted.previousDueAmount,
+        userReceivableAmount: resolveRecordReceivable(r, formatted),
         totalPayable: formatted.totalPayable,
         status: r.status,
         confirmedAt: r.paymentActions[0]?.confirmedAt ?? null,
