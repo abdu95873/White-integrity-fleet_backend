@@ -1,4 +1,5 @@
 import { resolveDateRange } from "./reportService.js";
+import { resolveDisplayRate } from "./courierService.js";
 
 export function buildCourierListQuery(params) {
   const { companyId, source, search, page, limit, period, month, year, weekEnd } = params;
@@ -42,6 +43,8 @@ export function buildCourierListQuery(params) {
 
 export function summarizeCourierRow(courier, hasPeriodFilter) {
   const records = courier.paymentRecords || [];
+  const currentCommission = resolveDisplayRate(courier.commissionHistory);
+  const currentTax = resolveDisplayRate(courier.taxHistory);
 
   if (hasPeriodFilter) {
     const periodPayable = records.reduce((sum, r) => sum + Number(r.totalPayable), 0);
@@ -49,8 +52,8 @@ export function summarizeCourierRow(courier, hasPeriodFilter) {
 
     return {
       ...courier,
-      currentCommission: courier.commissionHistory[0] ? Number(courier.commissionHistory[0].value) : 0,
-      currentTax: courier.taxHistory[0] ? Number(courier.taxHistory[0].value) : 0,
+      currentCommission,
+      currentTax,
       pendingDue: 0,
       periodPayable,
       periodTax,
@@ -62,8 +65,8 @@ export function summarizeCourierRow(courier, hasPeriodFilter) {
 
   return {
     ...courier,
-    currentCommission: courier.commissionHistory[0] ? Number(courier.commissionHistory[0].value) : 0,
-    currentTax: courier.taxHistory[0] ? Number(courier.taxHistory[0].value) : 0,
+    currentCommission,
+    currentTax,
     pendingDue: records[0] ? Number(records[0].totalPayable) : 0,
     periodPayable: null,
     periodTax: null,

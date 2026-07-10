@@ -60,8 +60,8 @@ router.get("/", validateQuery(listQuerySchema), async (req, res, next) => {
         take: limit,
         orderBy: { name: "asc" },
         include: {
-          commissionHistory: { where: { effectiveTo: null }, take: 1 },
-          taxHistory: { where: { effectiveTo: null }, take: 1 },
+          commissionHistory: { orderBy: { effectiveFrom: "desc" } },
+          taxHistory: { orderBy: { effectiveFrom: "desc" } },
           paymentRecords: periodPaymentFilter
             ? { where: periodPaymentFilter, include: { batch: true } }
             : { where: { status: "pending" }, orderBy: { createdAt: "desc" }, take: 1 },

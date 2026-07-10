@@ -8,6 +8,18 @@ import {
   getExternalIdFromRow,
 } from "./calculations.js";
 
+export function resolveDisplayRate(history) {
+  if (!history?.length) return 0;
+
+  const open = history.find((record) => record.effectiveTo === null);
+  if (open) return Number(open.value);
+
+  const latestWeek = [...history].sort(
+    (a, b) => new Date(b.effectiveFrom).getTime() - new Date(a.effectiveFrom).getTime()
+  )[0];
+  return latestWeek ? Number(latestWeek.value) : 0;
+}
+
 export async function getEffectiveRate(courierId, asOf, tx) {
   const client = tx ?? prisma;
 
@@ -19,17 +31,25 @@ export async function getEffectiveRate(courierId, asOf, tx) {
     },
     orderBy: { effectiveFrom: "desc" },
   });
-  return record ? Number(record.value) : 0;
+  if (record) return Number(record.value);
+
+  return getCurrentCommissionRate(courierId, tx);
 }
 
 export async function getCurrentCommissionRate(courierId, tx) {
   const client = tx ?? prisma;
 
-  const record = await client.commissionHistory.findFirst({
+  const open = await client.commissionHistory.findFirst({
     where: { courierId, effectiveTo: null },
     orderBy: { effectiveFrom: "desc" },
   });
-  return record ? Number(record.value) : 0;
+  if (open) return Number(open.value);
+
+  const latestWeek = await client.commissionHistory.findFirst({
+    where: { courierId, effectiveTo: { not: null } },
+    orderBy: { effectiveFrom: "desc" },
+  });
+  return latestWeek ? Number(latestWeek.value) : 0;
 }
 
 async function getTaxRecord(tx, courierId, asOf) {
@@ -47,17 +67,25 @@ async function getTaxRecord(tx, courierId, asOf) {
 
 export async function getEffectiveTaxAmount(courierId, asOf, tx) {
   const record = await getTaxRecord(tx, courierId, asOf);
-  return record ? Number(record.value) : 0;
+  if (record) return Number(record.value);
+
+  return getCurrentTaxAmount(courierId, tx);
 }
 
 export async function getCurrentTaxAmount(courierId, tx) {
   const client = tx ?? prisma;
 
-  const record = await client.taxHistory.findFirst({
+  const open = await client.taxHistory.findFirst({
     where: { courierId, effectiveTo: null },
     orderBy: { effectiveFrom: "desc" },
   });
-  return record ? Number(record.value) : 0;
+  if (open) return Number(open.value);
+
+  const latestWeek = await client.taxHistory.findFirst({
+    where: { courierId, effectiveTo: { not: null } },
+    orderBy: { effectiveFrom: "desc" },
+  });
+  return latestWeek ? Number(latestWeek.value) : 0;
 }
 
 export async function getPreviousDue(courierId, beforeBatchId, tx) {
