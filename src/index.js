@@ -10,7 +10,8 @@ import settingsRoutes from "./routes/settings.js";
 import uploadRoutes from "./routes/uploads.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
-dotenv.config();
+// Local .env should win over stale shell env vars (e.g. after commenting DATABASE_URL).
+dotenv.config({ override: process.env.VERCEL !== "1" });
 
 const app = express();
 const PORT = process.env.PORT || 5000;

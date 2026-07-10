@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma.js";
-import { resolveUserReceivable } from "./calculations.js";
+import { getExternalIdFromRow, resolveUserReceivable } from "./calculations.js";
 import {
   computePeriodPayment,
   findOrCreateCourier,
@@ -8,6 +8,7 @@ import {
   getPreviousDue,
   toDecimal,
 } from "./courierService.js";
+import { resolveUploadRates } from "./uploadPreviewService.js";
 
 export async function recalculatePendingPaymentsForCourier(courierId, companyId, tx = prisma) {
   const courier = await tx.courier.findFirst({
@@ -108,7 +109,16 @@ export async function recalculateAllPendingForCompany(companyId) {
 }
 
 export async function processExcelUpload(params) {
-  const { companyId, source, periodStart, periodEnd, rows, fileReference, uploadedById } = params;
+  const {
+    companyId,
+    source,
+    periodStart,
+    periodEnd,
+    rows,
+    fileReference,
+    uploadedById,
+    overrides = {},
+  } = params;
 
   return prisma.$transaction(async (tx) => {
     const batch = await tx.paymentBatch.create({
@@ -125,12 +135,18 @@ export async function processExcelUpload(params) {
     const results = [];
 
     for (const row of rows) {
-      const courier = await findOrCreateCourier(companyId, source, row, tx);
-      // Rate effective at week start — mid-week rate changes only affect the following week.
-      const asOf = periodStart;
+      const externalId = getExternalIdFromRow(source, row);
+      const override = overrides[externalId];
 
-      const commissionRate = await getEffectiveRate(courier.id, asOf, tx);
-      const taxAmount = await getEffectiveTaxAmount(courier.id, asOf, tx);
+      const { courier, commissionRate, taxAmount } = await resolveUploadRates({
+        companyId,
+        source,
+        row,
+        periodStart,
+        periodEnd,
+        override,
+        tx,
+      });
 
       const { periodCalculated, commissionAmount, taxAmount: tax, grandPayment } = computePeriodPayment(
         source,

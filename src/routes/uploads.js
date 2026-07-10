@@ -6,6 +6,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { parseExcelBuffer } from "../services/excelParser.js";
 import { deletePaymentBatch, processExcelUpload } from "../services/paymentService.js";
 import { formatPaymentRecord } from "../services/paymentFormat.js";
+import { previewExcelUpload } from "../services/uploadPreviewService.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -16,25 +17,93 @@ const uploadMetaSchema = z.object({
   periodEnd: z.coerce.date(),
 });
 
+const overrideEntrySchema = z.object({
+  commission: z.union([z.number(), z.string()]).optional(),
+  tax: z.union([z.number(), z.string()]).optional(),
+});
+
+const overridesSchema = z.record(overrideEntrySchema);
+
+function formatUploadResponse(result) {
+  return {
+    batch: result.batch,
+    recordsCreated: result.records.length,
+    records: result.records.map((r) => {
+      const formatted = formatPaymentRecord(r);
+      return {
+        id: formatted.id,
+        courier: r.courier,
+        periodCalculated: formatted.periodCalculated,
+        commissionUsed: formatted.commissionUsed,
+        taxUsed: formatted.taxUsed,
+        commissionAmount: formatted.commissionAmount,
+        taxAmount: formatted.taxAmount,
+        calculatedGrandPayment: formatted.calculatedGrandPayment,
+        previousDueAmount: formatted.previousDueAmount,
+        totalPayable: formatted.totalPayable,
+        status: formatted.status,
+      };
+    }),
+  };
+}
+
+async function parseUploadRequest(req) {
+  if (!req.file) {
+    throw new Error("Excel file is required");
+  }
+
+  const meta = uploadMetaSchema.parse({
+    source: req.body.source,
+    periodStart: req.body.periodStart,
+    periodEnd: req.body.periodEnd,
+  });
+
+  const rows = await parseExcelBuffer(req.file.buffer, meta.source);
+  if (rows.length === 0) {
+    throw new Error("No valid courier rows found in file");
+  }
+
+  let overrides = {};
+  if (req.body.overrides) {
+    const parsed =
+      typeof req.body.overrides === "string"
+        ? JSON.parse(req.body.overrides)
+        : req.body.overrides;
+    overrides = overridesSchema.parse(parsed);
+  }
+
+  return { meta, rows, overrides, fileReference: req.file.originalname };
+}
+
 router.use(authMiddleware);
+
+router.post("/preview", upload.single("file"), async (req, res, next) => {
+  try {
+    const { meta, rows } = await parseUploadRequest(req);
+
+    const preview = await previewExcelUpload({
+      companyId: req.user.companyId,
+      source: meta.source,
+      periodStart: meta.periodStart,
+      periodEnd: meta.periodEnd,
+      rows,
+    });
+
+    res.json({
+      ...preview,
+      fileReference: req.file.originalname,
+    });
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      return res.status(400).json({ error: "Invalid overrides JSON" });
+    }
+    next(err);
+  }
+});
 
 router.post("/", upload.single("file"), async (req, res, next) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "Excel file is required" });
-    }
-
-    const meta = uploadMetaSchema.parse({
-      source: req.body.source,
-      periodStart: req.body.periodStart,
-      periodEnd: req.body.periodEnd,
-    });
-
-    const rows = await parseExcelBuffer(req.file.buffer, meta.source);
-
-    if (rows.length === 0) {
-      return res.status(400).json({ error: "No valid courier rows found in file" });
-    }
+    const { meta, rows, overrides, fileReference } = await parseUploadRequest(req);
 
     const result = await processExcelUpload({
       companyId: req.user.companyId,
@@ -42,31 +111,16 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       periodStart: meta.periodStart,
       periodEnd: meta.periodEnd,
       rows,
-      fileReference: req.file.originalname,
+      fileReference,
       uploadedById: req.user.userId,
+      overrides,
     });
 
-    res.status(201).json({
-      batch: result.batch,
-      recordsCreated: result.records.length,
-      records: result.records.map((r) => {
-        const formatted = formatPaymentRecord(r);
-        return {
-          id: formatted.id,
-          courier: r.courier,
-          periodCalculated: formatted.periodCalculated,
-          commissionUsed: formatted.commissionUsed,
-          taxUsed: formatted.taxUsed,
-          commissionAmount: formatted.commissionAmount,
-          taxAmount: formatted.taxAmount,
-          calculatedGrandPayment: formatted.calculatedGrandPayment,
-          previousDueAmount: formatted.previousDueAmount,
-          totalPayable: formatted.totalPayable,
-          status: formatted.status,
-        };
-      }),
-    });
+    res.status(201).json(formatUploadResponse(result));
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return res.status(400).json({ error: "Invalid overrides JSON" });
+    }
     next(err);
   }
 });
