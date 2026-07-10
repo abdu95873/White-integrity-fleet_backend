@@ -1,4 +1,7 @@
-export function errorHandler(err, _req, res, _next) {
+import { applyCorsHeaders } from "./cors.js";
+
+export function errorHandler(err, req, res, _next) {
+  applyCorsHeaders(req, res);
   console.error(err);
 
   let message = err instanceof Error ? err.message : "Internal server error";

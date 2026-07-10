@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
+import { applyCorsHeaders } from "../middleware/cors.js";
 import { parseCommissionListBuffer } from "../services/commissionListParser.js";
 import {
   confirmCommissionImport,
@@ -85,6 +86,7 @@ router.post("/preview", upload.single("file"), async (req, res, next) => {
     });
   } catch (err) {
     if (err instanceof SyntaxError) {
+      applyCorsHeaders(req, res);
       return res.status(400).json({ error: "Invalid overrides JSON" });
     }
     next(err);
@@ -108,6 +110,7 @@ router.post("/confirm", upload.single("file"), async (req, res, next) => {
     res.status(201).json(result);
   } catch (err) {
     if (err instanceof SyntaxError) {
+      applyCorsHeaders(req, res);
       return res.status(400).json({ error: "Invalid overrides JSON" });
     }
     next(err);
