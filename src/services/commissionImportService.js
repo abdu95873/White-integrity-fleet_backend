@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { runTransaction } from "../lib/transaction.js";
 import { buildCourierRow } from "./commissionListParser.js";
 import {
   findOrCreateCourier,
@@ -159,7 +160,7 @@ export async function confirmCommissionImport({
   const weekMode = applyMode === "week" && isWeekMode(periodStart, periodEnd);
   const affectedCourierIds = new Set();
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await runTransaction(async (tx) => {
     const results = [];
     let created = 0;
     let updated = 0;

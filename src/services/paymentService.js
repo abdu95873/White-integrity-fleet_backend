@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { runTransaction } from "../lib/transaction.js";
 import { getExternalIdFromRow, resolveUserReceivable } from "./calculations.js";
 import {
   computePeriodPayment,
@@ -100,7 +101,7 @@ export async function recalculateAllPendingForCompany(companyId) {
 
   let updated = 0;
   for (const { id } of couriers) {
-    const result = await prisma.$transaction((tx) =>
+    const result = await runTransaction((tx) =>
       recalculatePendingPaymentsForCourier(id, companyId, tx)
     );
     updated += result.updated;
@@ -120,7 +121,7 @@ export async function processExcelUpload(params) {
     overrides = {},
   } = params;
 
-  return prisma.$transaction(async (tx) => {
+  return runTransaction(async (tx) => {
     const batch = await tx.paymentBatch.create({
       data: {
         companyId,
@@ -214,7 +215,7 @@ export async function confirmPayment(params) {
   if (!record) throw new Error("Payment record not found");
   if (record.status === "paid") throw new Error("Payment already confirmed");
 
-  return prisma.$transaction(async (tx) => {
+  return runTransaction(async (tx) => {
     const updated = await tx.paymentRecord.update({
       where: { id: paymentRecordId },
       data: { status: "paid" },
@@ -324,7 +325,7 @@ export async function addCommissionRate(params) {
   });
   if (!courier) throw new Error("Courier not found");
 
-  return prisma.$transaction(async (tx) => {
+  return runTransaction(async (tx) => {
     let record;
 
     if (periodStart && periodEnd) {
@@ -397,7 +398,7 @@ export async function addTaxAmount(params) {
   });
   if (!courier) throw new Error("Courier not found");
 
-  return prisma.$transaction(async (tx) => {
+  return runTransaction(async (tx) => {
     let record;
 
     if (periodStart && periodEnd) {
@@ -474,7 +475,7 @@ export async function deletePaymentBatch(batchId, companyId, userId) {
     );
   }
 
-  return prisma.$transaction(async (tx) => {
+  return runTransaction(async (tx) => {
     const affectedCourierIds = new Set(batch.paymentRecords.map((r) => r.courierId));
 
     if (recordIds.length > 0) {

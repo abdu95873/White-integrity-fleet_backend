@@ -1,7 +1,12 @@
 {
   "version": 2,
   "installCommand": "PRISMA_SKIP_POSTINSTALL_GENERATE=true npm install",
-  "buildCommand": "npm run build",
+  "buildCommand": "node scripts/ensure-direct-url.mjs",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    }
+  },
   "env": {
     "PRISMA_SKIP_POSTINSTALL_GENERATE": "true",
     "FRONTEND_URL": "https://white-integrity-fleet-frontend.vercel.app"
