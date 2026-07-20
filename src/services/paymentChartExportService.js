@@ -118,7 +118,7 @@ function splitBoltName(name) {
 }
 
 function platformLabel(source) {
-  return source === "glovo" ? "GLOVE" : "BOLT";
+  return source === "glovo" ? "GLOVO" : "BOLT";
 }
 
 function dueSectionTitle(source) {
@@ -167,9 +167,6 @@ function dataCellValue(col, row, isBolt) {
   }
   if (col.key === "dueTotal") {
     return row.due > 0 ? row.dueLabel : "";
-  }
-  if (!isBolt && (col.key === "externalId" || col.key === "name")) {
-    return "";
   }
   return row[col.key] ?? "";
 }
@@ -258,13 +255,15 @@ export function buildPaymentChartPdf({
       );
     };
 
-    const ensureSpace = (height) => {
+    const ensureSpace = (height, { withHeader = true } = {}) => {
       const bottom = doc.page.height - doc.page.margins.bottom;
       if (y + height > bottom) {
         doc.addPage({ size: "A4", layout: "landscape", margin: 36 });
         y = doc.page.margins.top;
         drawTitle();
-        drawHeader();
+        if (withHeader) {
+          drawHeader();
+        }
       }
     };
 
@@ -283,7 +282,8 @@ export function buildPaymentChartPdf({
 
     drawTotalRow();
 
-    ensureSpace(30 + Math.max(dueRows.length, 1) * 16);
+    // Due section is plain text — never redraw table headers on page breaks.
+    ensureSpace(40, { withHeader: false });
     y += 12;
     doc.font("Helvetica-Bold").fontSize(10).text(dueSectionTitle(source), left, y, {
       width: pageWidth,
@@ -294,7 +294,7 @@ export function buildPaymentChartPdf({
     doc.font("Helvetica").fontSize(9);
     if (dueRows.length > 0) {
       for (const row of dueRows) {
-        ensureSpace(16);
+        ensureSpace(16, { withHeader: false });
         doc.text(formatDueLine(row, isBolt), left, y, { width: pageWidth, lineBreak: false });
         y += 16;
       }
@@ -365,8 +365,8 @@ export async function buildPaymentChartExcel({ source, companyName, range, rows,
     } else {
       sheet.addRow([
         row.rowNumber,
-        "",
-        "",
+        row.externalId,
+        row.name,
         row.due > 0 ? "DUE" : row.payment,
         row.due > 0 ? row.due : "",
         "",
