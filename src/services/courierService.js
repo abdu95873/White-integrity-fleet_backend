@@ -88,20 +88,23 @@ export async function getCurrentTaxAmount(courierId, tx) {
   return latestWeek ? Number(latestWeek.value) : 0;
 }
 
-export async function getPreviousDue(courierId, beforeBatchId, tx) {
+export async function getPreviousDue(courierId, beforeBatchId, tx, periodStart = null) {
   const client = tx ?? prisma;
 
   if (!beforeBatchId) {
     return { amount: 0, referenceId: null };
   }
 
-  const currentBatch = await client.paymentBatch.findUnique({
-    where: { id: beforeBatchId },
-    select: { periodStart: true },
-  });
-
-  if (!currentBatch) {
-    return { amount: 0, referenceId: null };
+  let batchPeriodStart = periodStart;
+  if (!batchPeriodStart) {
+    const currentBatch = await client.paymentBatch.findUnique({
+      where: { id: beforeBatchId },
+      select: { periodStart: true },
+    });
+    if (!currentBatch) {
+      return { amount: 0, referenceId: null };
+    }
+    batchPeriodStart = currentBatch.periodStart;
   }
 
   // Most recent pending payroll period strictly before the current batch.
@@ -111,7 +114,7 @@ export async function getPreviousDue(courierId, beforeBatchId, tx) {
       status: "pending",
       batchId: { not: beforeBatchId },
       batch: {
-        periodStart: { lt: currentBatch.periodStart },
+        periodStart: { lt: batchPeriodStart },
       },
     },
     orderBy: [{ batch: { periodStart: "desc" } }, { createdAt: "desc" }],

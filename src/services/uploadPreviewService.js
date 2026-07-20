@@ -174,11 +174,24 @@ export async function resolveUploadRates({
   const existing = await lookupCourier(companyId, source, row, tx);
   const isNewCourier = !existing;
 
-  const courier = await findOrCreateCourier(companyId, source, row, tx);
+  let courier = existing;
+  if (!courier) {
+    courier = await findOrCreateCourier(companyId, source, row, tx);
+  } else {
+    const name = getCourierNameFromRow(source, row);
+    const city = getCityFromRow(source, row);
+    if (courier.name !== name || courier.city !== city) {
+      courier = await tx.courier.update({
+        where: { id: courier.id },
+        data: { name, city },
+      });
+    }
+  }
+
   const asOf = periodStart;
 
-  let commissionRate = await getEffectiveRate(courier.id, asOf, tx);
-  let taxAmount = await getEffectiveTaxAmount(courier.id, asOf, tx);
+  let commissionRate = isNewCourier ? 0 : await getEffectiveRate(courier.id, asOf, tx);
+  let taxAmount = isNewCourier ? 0 : await getEffectiveTaxAmount(courier.id, asOf, tx);
 
   const overrideCommission = override ? parseOverrideNumber(override.commission) : null;
   const overrideTax = override ? parseOverrideNumber(override.tax) : null;

@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma.js";
-import { runTransaction } from "../lib/transaction.js";
+import { runTransaction, UPLOAD_TX_OPTIONS } from "../lib/transaction.js";
 import { getExternalIdFromRow, resolveUserReceivable } from "./calculations.js";
 import {
   computePeriodPayment,
@@ -109,7 +109,7 @@ export async function recalculateAllPendingForCompany(companyId) {
   return { couriers: couriers.length, recordsUpdated: updated };
 }
 
-const UPLOAD_BATCH_SIZE = 25;
+const UPLOAD_BATCH_SIZE = 8;
 
 async function processUploadRow({
   row,
@@ -141,11 +141,11 @@ async function processUploadRow({
     taxAmount
   );
 
-  const previousDue = await getPreviousDue(courier.id, batchId, tx);
+  const previousDue = await getPreviousDue(courier.id, batchId, tx, periodStart);
   const totalPayable = grandPayment + previousDue.amount;
   const userReceivableAmount = resolveUserReceivable(source, row, totalPayable);
 
-  return tx.paymentRecord.create({
+  const record = await tx.paymentRecord.create({
     data: {
       courierId: courier.id,
       batchId,
@@ -161,10 +161,9 @@ async function processUploadRow({
       totalPayable: toDecimal(totalPayable),
       previousDueReference: previousDue.referenceId,
     },
-    include: {
-      courier: true,
-    },
   });
+
+  return { ...record, courier };
 }
 
 export async function processExcelUpload(params) {
@@ -212,7 +211,7 @@ export async function processExcelUpload(params) {
           );
         }
         return processed;
-      });
+      }, UPLOAD_TX_OPTIONS);
       results.push(...chunkRecords);
     }
 
