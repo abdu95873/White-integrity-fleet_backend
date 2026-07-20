@@ -4,7 +4,7 @@
   "buildCommand": "node scripts/ensure-direct-url.mjs",
   "functions": {
     "api/index.js": {
-      "maxDuration": 60
+      "maxDuration": 300
     }
   },
   "env": {

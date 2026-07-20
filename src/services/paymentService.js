@@ -109,6 +109,64 @@ export async function recalculateAllPendingForCompany(companyId) {
   return { couriers: couriers.length, recordsUpdated: updated };
 }
 
+const UPLOAD_BATCH_SIZE = 25;
+
+async function processUploadRow({
+  row,
+  overrides,
+  companyId,
+  source,
+  periodStart,
+  periodEnd,
+  batchId,
+  tx,
+}) {
+  const externalId = getExternalIdFromRow(source, row);
+  const override = overrides[externalId];
+
+  const { courier, commissionRate, taxAmount } = await resolveUploadRates({
+    companyId,
+    source,
+    row,
+    periodStart,
+    periodEnd,
+    override,
+    tx,
+  });
+
+  const { periodCalculated, commissionAmount, taxAmount: tax, grandPayment } = computePeriodPayment(
+    source,
+    row,
+    commissionRate,
+    taxAmount
+  );
+
+  const previousDue = await getPreviousDue(courier.id, batchId, tx);
+  const totalPayable = grandPayment + previousDue.amount;
+  const userReceivableAmount = resolveUserReceivable(source, row, totalPayable);
+
+  return tx.paymentRecord.create({
+    data: {
+      courierId: courier.id,
+      batchId,
+      rawExcelData: row,
+      periodCalculated: toDecimal(periodCalculated),
+      commissionUsed: toDecimal(commissionRate),
+      taxUsed: toDecimal(taxAmount),
+      commissionAmount: toDecimal(commissionAmount),
+      taxAmount: toDecimal(tax),
+      calculatedGrandPayment: toDecimal(grandPayment),
+      userReceivableAmount: toDecimal(userReceivableAmount),
+      previousDueAmount: toDecimal(previousDue.amount),
+      totalPayable: toDecimal(totalPayable),
+      previousDueReference: previousDue.referenceId,
+    },
+    include: {
+      courier: true,
+    },
+  });
+}
+
 export async function processExcelUpload(params) {
   const {
     companyId,
@@ -121,71 +179,45 @@ export async function processExcelUpload(params) {
     overrides = {},
   } = params;
 
-  return runTransaction(async (tx) => {
-    const batch = await tx.paymentBatch.create({
-      data: {
-        companyId,
-        source,
-        periodStart,
-        periodEnd,
-        fileReference,
-        uploadedById,
-      },
-    });
+  const batch = await prisma.paymentBatch.create({
+    data: {
+      companyId,
+      source,
+      periodStart,
+      periodEnd,
+      fileReference,
+      uploadedById,
+    },
+  });
 
-    const results = [];
+  const results = [];
 
-    for (const row of rows) {
-      const externalId = getExternalIdFromRow(source, row);
-      const override = overrides[externalId];
-
-      const { courier, commissionRate, taxAmount } = await resolveUploadRates({
-        companyId,
-        source,
-        row,
-        periodStart,
-        periodEnd,
-        override,
-        tx,
+  try {
+    for (let index = 0; index < rows.length; index += UPLOAD_BATCH_SIZE) {
+      const chunk = rows.slice(index, index + UPLOAD_BATCH_SIZE);
+      const chunkRecords = await runTransaction(async (tx) => {
+        const processed = [];
+        for (const row of chunk) {
+          processed.push(
+            await processUploadRow({
+              row,
+              overrides,
+              companyId,
+              source,
+              periodStart,
+              periodEnd,
+              batchId: batch.id,
+              tx,
+            })
+          );
+        }
+        return processed;
       });
-
-      const { periodCalculated, commissionAmount, taxAmount: tax, grandPayment } = computePeriodPayment(
-        source,
-        row,
-        commissionRate,
-        taxAmount
-      );
-
-      const previousDue = await getPreviousDue(courier.id, batch.id, tx);
-      const totalPayable = grandPayment + previousDue.amount;
-      const userReceivableAmount = resolveUserReceivable(source, row, totalPayable);
-
-      const record = await tx.paymentRecord.create({
-        data: {
-          courierId: courier.id,
-          batchId: batch.id,
-          rawExcelData: row,
-          periodCalculated: toDecimal(periodCalculated),
-          commissionUsed: toDecimal(commissionRate),
-          taxUsed: toDecimal(taxAmount),
-          commissionAmount: toDecimal(commissionAmount),
-          taxAmount: toDecimal(tax),
-          calculatedGrandPayment: toDecimal(grandPayment),
-          userReceivableAmount: toDecimal(userReceivableAmount),
-          previousDueAmount: toDecimal(previousDue.amount),
-          totalPayable: toDecimal(totalPayable),
-          previousDueReference: previousDue.referenceId,
-        },
-        include: {
-          courier: true,
-        },
-      });
-
-      results.push(record);
+      results.push(...chunkRecords);
     }
 
     if (uploadedById) {
-      await tx.auditLog.create({
+      await prisma.auditLog.create({
         data: {
           companyId,
           userId: uploadedById,
@@ -198,7 +230,11 @@ export async function processExcelUpload(params) {
     }
 
     return { batch, records: results };
-  });
+  } catch (err) {
+    // Avoid leaving a half-imported batch if a later chunk fails.
+    await prisma.paymentBatch.delete({ where: { id: batch.id } }).catch(() => {});
+    throw err;
+  }
 }
 
 export async function confirmPayment(params) {

@@ -26,19 +26,27 @@ const overridesSchema = z.record(overrideEntrySchema);
 
 function formatUploadResponse(result) {
   return {
-    batch: result.batch,
+    batch: {
+      id: result.batch.id,
+      source: result.batch.source,
+      periodStart: result.batch.periodStart,
+      periodEnd: result.batch.periodEnd,
+      fileReference: result.batch.fileReference,
+      uploadedAt: result.batch.uploadedAt,
+    },
     recordsCreated: result.records.length,
     records: result.records.map((r) => {
       const formatted = formatPaymentRecord(r);
       return {
         id: formatted.id,
-        courier: r.courier,
-        periodCalculated: formatted.periodCalculated,
+        courier: {
+          id: r.courier.id,
+          name: r.courier.name,
+          externalId: r.courier.externalId,
+          source: r.courier.source,
+        },
         commissionUsed: formatted.commissionUsed,
-        taxUsed: formatted.taxUsed,
-        commissionAmount: formatted.commissionAmount,
         taxAmount: formatted.taxAmount,
-        calculatedGrandPayment: formatted.calculatedGrandPayment,
         previousDueAmount: formatted.previousDueAmount,
         totalPayable: formatted.totalPayable,
         status: formatted.status,
