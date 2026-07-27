@@ -19,6 +19,7 @@ const listQuerySchema = z.object({
   period: z.enum(["weekly", "monthly", "yearly"]).optional(),
   month: z.coerce.number().min(1).max(12).optional(),
   year: z.coerce.number().min(2000).max(2100).optional(),
+  weekStart: z.string().optional(),
   weekEnd: z.string().optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),

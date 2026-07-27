@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma.js";
-import { toDateOnlyString } from "../lib/dateOnly.js";
+import { toDateOnlyString, utcDateOnly } from "../lib/dateOnly.js";
 import { resolveUserReceivable } from "./calculations.js";
-import { resolveDateRange } from "./reportService.js";
+import { batchPeriodFilter, resolveDateRange } from "./reportService.js";
 
 function getRecordReceivable(record) {
   const stored = Number(record.userReceivableAmount ?? 0);
@@ -57,10 +57,7 @@ export async function fetchAccountsSummary(params) {
       companyId,
       ...(source ? { source } : {}),
     },
-    batch: {
-      periodStart: { lte: end },
-      periodEnd: { gte: start },
-    },
+    batch: batchPeriodFilter(period, start, end),
   };
 
   const records = await prisma.paymentRecord.findMany({
@@ -155,7 +152,7 @@ export async function fetchAccountsSummary(params) {
   }
 
   return {
-    range: { start, end },
+    range: { start: toDateOnlyString(start), end: toDateOnlyString(utcDateOnly(end)) },
     summary,
     byCourier: Array.from(byCourier.values()).sort(
       (a, b) => b.dueFromUsers - a.dueFromUsers || b.commissionProfit - a.commissionProfit

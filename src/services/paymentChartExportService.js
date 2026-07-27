@@ -3,15 +3,24 @@ import PDFDocument from "pdfkit";
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_UPPER = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
+function asUtcDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  return new Date(value);
+}
+
 function formatChartDate(value) {
-  const d = value instanceof Date ? value : new Date(value);
-  return `${String(d.getDate()).padStart(2, "0")}-${MONTHS_SHORT[d.getMonth()]}-${d.getFullYear()}`;
+  const d = asUtcDate(value);
+  return `${String(d.getUTCDate()).padStart(2, "0")}-${MONTHS_SHORT[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
 function formatWeekRange(start, end) {
-  const s = start instanceof Date ? start : new Date(start);
-  const e = end instanceof Date ? end : new Date(end);
-  return `${s.getDate()}-${MONTHS_UPPER[s.getMonth()]}-${e.getDate()}-${MONTHS_UPPER[e.getMonth()]}-${e.getFullYear()}`;
+  const s = asUtcDate(start);
+  const e = asUtcDate(end);
+  return `${s.getUTCDate()}-${MONTHS_UPPER[s.getUTCMonth()]}-${e.getUTCDate()}-${MONTHS_UPPER[e.getUTCMonth()]}-${e.getUTCFullYear()}`;
 }
 
 function formatAmount(value) {
@@ -129,8 +138,11 @@ function prepareRows(rows) {
   return [...rows]
     .sort((a, b) => String(a.courierName).localeCompare(String(b.courierName)))
     .map((row, index) => {
-      const payment = Number(row.totalPayable) || 0;
+      const totalPayable = Number(row.totalPayable) || 0;
       const due = Number(row.userReceivableAmount) || 0;
+      // Only positive payouts count as payment; negatives are collection-only (DUE).
+      const payment = totalPayable > 0 ? totalPayable : 0;
+      const showDueOnly = payment <= 0 && due > 0;
       const boltNames = splitBoltName(row.courierName);
 
       return {
@@ -140,9 +152,10 @@ function prepareRows(rows) {
         firstName: boltNames.firstName,
         lastName: boltNames.lastName,
         payment,
-        paymentLabel: formatAmount(payment),
+        paymentLabel: payment > 0 ? formatAmount(payment) : "",
         due,
         dueLabel: due > 0 ? formatAmount(due) : "",
+        showDueOnly,
       };
     });
 }
@@ -162,7 +175,8 @@ function totalCellValue(col, netPayment, cashDue, isBolt) {
 function dataCellValue(col, row, isBolt) {
   if (col.key === "signature") return "";
   if (col.key === "paymentLabel") {
-    if (row.due > 0) return "DUE";
+    // Glovo often has cash-due alongside a positive payout — show both, not "DUE".
+    if (row.showDueOnly) return "DUE";
     return row.paymentLabel;
   }
   if (col.key === "dueTotal") {
@@ -352,14 +366,17 @@ export async function buildPaymentChartExcel({ source, companyName, range, rows,
   headerRow.getCell(isBolt ? 7 : 6).alignment = { horizontal: "center" };
 
   for (const row of prepared) {
+    const paymentCell = row.showDueOnly ? "DUE" : row.payment > 0 ? row.payment : "";
+    const dueCell = row.due > 0 ? row.due : "";
+
     if (isBolt) {
       sheet.addRow([
         row.rowNumber,
         row.externalId,
         row.firstName,
         row.lastName,
-        row.due > 0 ? "DUE" : row.payment,
-        row.due > 0 ? row.due : "",
+        paymentCell,
+        dueCell,
         "",
       ]);
     } else {
@@ -367,8 +384,8 @@ export async function buildPaymentChartExcel({ source, companyName, range, rows,
         row.rowNumber,
         row.externalId,
         row.name,
-        row.due > 0 ? "DUE" : row.payment,
-        row.due > 0 ? row.due : "",
+        paymentCell,
+        dueCell,
         "",
       ]);
     }

@@ -5,7 +5,8 @@ import { authMiddleware } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { confirmPayment } from "../services/paymentService.js";
 import { formatPaymentRecord } from "../services/paymentFormat.js";
-import { resolveDateRange } from "../services/reportService.js";
+import { batchPeriodFilter, resolveDateRange } from "../services/reportService.js";
+import { toDateOnlyString, utcDateOnly } from "../lib/dateOnly.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const listQuerySchema = z.object({
   period: z.enum(["weekly", "monthly", "yearly"]).optional(),
   month: z.coerce.number().min(1).max(12).optional(),
   year: z.coerce.number().min(2000).max(2100).optional(),
+  weekStart: z.string().optional(),
   weekEnd: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
@@ -31,16 +33,25 @@ router.use(authMiddleware);
 
 router.get("/", validateQuery(listQuerySchema), async (req, res, next) => {
   try {
-    const { status, batchId, courierId, source, search, period, month, year, weekEnd, page, limit } =
-      req.validatedQuery;
+    const {
+      status,
+      batchId,
+      courierId,
+      source,
+      search,
+      period,
+      month,
+      year,
+      weekStart,
+      weekEnd,
+      page,
+      limit,
+    } = req.validatedQuery;
 
     let batchFilter = {};
     if (period) {
-      const { start, end } = resolveDateRange({ period, month, year, weekEnd });
-      batchFilter = {
-        periodStart: { lte: end },
-        periodEnd: { gte: start },
-      };
+      const { start, end } = resolveDateRange({ period, month, year, weekStart, weekEnd });
+      batchFilter = batchPeriodFilter(period, start, end);
     }
 
     const where = {
@@ -79,12 +90,20 @@ router.get("/", validateQuery(listQuerySchema), async (req, res, next) => {
       prisma.paymentRecord.count({ where }),
     ]);
 
-    const range = period ? resolveDateRange({ period, month, year, weekEnd }) : null;
+    const range = period ? resolveDateRange({ period, month, year, weekStart, weekEnd }) : null;
 
     res.json({
       data: records.map(formatPaymentRecord),
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-      ...(range ? { range: { start: range.start, end: range.end, label: range.label } } : {}),
+      ...(range
+        ? {
+            range: {
+              start: toDateOnlyString(range.start),
+              end: toDateOnlyString(utcDateOnly(range.end)),
+              label: range.label,
+            },
+          }
+        : {}),
     });
   } catch (err) {
     next(err);

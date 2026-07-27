@@ -7,6 +7,20 @@ export function toDateOnlyString(value) {
   return `${y}-${m}-${day}`;
 }
 
+/** UTC midnight for a YYYY-MM-DD (or Date coerced from one) — matches Prisma date-only fields. */
+export function utcDateOnly(value) {
+  if (!value) {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }
+  if (typeof value === "string") {
+    const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 export function parseDateOnly(value) {
   if (!value) return new Date();
   const s =

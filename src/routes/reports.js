@@ -15,14 +15,15 @@ const reportQuerySchema = z.object({
   period: z.enum(["weekly", "monthly", "yearly"]).default("monthly"),
   month: z.coerce.number().min(1).max(12).optional(),
   year: z.coerce.number().min(2000).max(2100).optional(),
-  weekEnd: z.coerce.date().optional(),
+  weekStart: z.string().optional(),
+  weekEnd: z.string().optional(),
   source: z.enum(["glovo", "bolt"]).optional(),
   courierId: z.string().optional(),
   format: z.enum(["json", "csv", "xlsx", "pdf", "chart-xlsx"]).default("json"),
 });
 
-function buildFileLabel({ source, period, month, year, weekEnd, suffix }) {
-  const { fileLabel } = resolveDateRange({ period, month, year, weekEnd });
+function buildFileLabel({ source, period, month, year, weekStart, weekEnd, suffix }) {
+  const { fileLabel } = resolveDateRange({ period, month, year, weekStart, weekEnd });
   const platform = source ? `${source.toUpperCase()}-` : "";
   return `${platform}payment-chart-${fileLabel}.${suffix}`;
 }
@@ -40,7 +41,7 @@ router.get("/dashboard", async (req, res, next) => {
 
 router.get("/", validateQuery(reportQuerySchema), async (req, res, next) => {
   try {
-    const { period, month, year, weekEnd, source, courierId, format } = req.validatedQuery;
+    const { period, month, year, weekStart, weekEnd, source, courierId, format } = req.validatedQuery;
 
     if ((format === "pdf" || format === "chart-xlsx") && !source) {
       return res.status(400).json({
@@ -53,12 +54,13 @@ router.get("/", validateQuery(reportQuerySchema), async (req, res, next) => {
       period,
       month,
       year,
+      weekStart,
       weekEnd,
       source,
       courierId,
     });
 
-    const { fileLabel } = resolveDateRange({ period, month, year, weekEnd });
+    const { fileLabel } = resolveDateRange({ period, month, year, weekStart, weekEnd });
     const { rows, range } = result;
 
     if (format === "csv") {
@@ -96,7 +98,7 @@ router.get("/", validateQuery(reportQuerySchema), async (req, res, next) => {
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${buildFileLabel({ source, period, month, year, weekEnd, suffix: "pdf" })}"`
+          `attachment; filename="${buildFileLabel({ source, period, month, year, weekStart, weekEnd, suffix: "pdf" })}"`
         );
         return res.send(buffer);
       }
@@ -108,7 +110,7 @@ router.get("/", validateQuery(reportQuerySchema), async (req, res, next) => {
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${buildFileLabel({ source, period, month, year, weekEnd, suffix: "xlsx" })}"`
+        `attachment; filename="${buildFileLabel({ source, period, month, year, weekStart, weekEnd, suffix: "xlsx" })}"`
       );
       return res.send(buffer);
     }

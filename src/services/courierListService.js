@@ -1,8 +1,8 @@
-import { resolveDateRange } from "./reportService.js";
+import { batchPeriodFilter, resolveDateRange } from "./reportService.js";
 import { resolveDisplayRate } from "./courierService.js";
 
 export function buildCourierListQuery(params) {
-  const { companyId, source, search, page, limit, period, month, year, weekEnd } = params;
+  const { companyId, source, search, page, limit, period, month, year, weekStart, weekEnd } = params;
 
   const where = {
     companyId,
@@ -21,21 +21,12 @@ export function buildCourierListQuery(params) {
   let periodPaymentFilter = null;
 
   if (period) {
-    range = resolveDateRange({ period, month, year, weekEnd });
+    range = resolveDateRange({ period, month, year, weekStart, weekEnd });
+    const batch = batchPeriodFilter(period, range.start, range.end);
     where.paymentRecords = {
-      some: {
-        batch: {
-          periodStart: { lte: range.end },
-          periodEnd: { gte: range.start },
-        },
-      },
+      some: { batch },
     };
-    periodPaymentFilter = {
-      batch: {
-        periodStart: { lte: range.end },
-        periodEnd: { gte: range.start },
-      },
-    };
+    periodPaymentFilter = { batch };
   }
 
   return { where, range, periodPaymentFilter, page, limit };

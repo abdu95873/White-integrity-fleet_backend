@@ -1,60 +1,78 @@
 import ExcelJS from "exceljs";
 import { prisma } from "../lib/prisma.js";
-import { parseDateOnly, toDateOnlyString } from "../lib/dateOnly.js";
+import { toDateOnlyString, utcDateOnly } from "../lib/dateOnly.js";
 import { resolveUserReceivable } from "./calculations.js";
 import { formatPaymentRecord } from "./paymentFormat.js";
 
 function formatRangeLabel(start, end) {
-  const fmt = (d) =>
-    `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  const fmt = (d) => {
+    const s = toDateOnlyString(d);
+    const [y, m, day] = s.split("-");
+    return `${day}/${m}/${y}`;
+  };
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
 function formatFileDate(value) {
-  const d = value instanceof Date ? value : new Date(value);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return toDateOnlyString(value);
 }
 
 function formatExportDate(value) {
   if (!value) return "";
-  const d = value instanceof Date ? value : new Date(value);
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  const s = toDateOnlyString(value);
+  const [y, m, d] = s.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+/** Prisma filter for batch period. Weekly = exact week; monthly/yearly = overlap. */
+export function batchPeriodFilter(period, start, end) {
+  if (period === "weekly") {
+    // Exact match so Glovo (Mon–Sun) and Bolt (Sun–Sat) weeks do not mix.
+    return {
+      periodStart: start,
+      periodEnd: utcDateOnly(end),
+    };
+  }
+
+  return {
+    periodStart: { lte: end },
+    periodEnd: { gte: start },
+  };
 }
 
 export function resolveDateRange({ period, month, year, weekStart, weekEnd }) {
   const now = new Date();
 
   if (period === "monthly") {
-    const y = year ?? now.getFullYear();
-    const m = month ?? now.getMonth() + 1;
-    const start = new Date(y, m - 1, 1, 0, 0, 0, 0);
-    const end = new Date(y, m, 0, 23, 59, 59, 999);
+    const y = year ?? now.getUTCFullYear();
+    const m = month ?? now.getUTCMonth() + 1;
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
     const label = `${y}-${String(m).padStart(2, "0")}`;
     return { start, end, label, fileLabel: label };
   }
 
   if (period === "yearly") {
-    const y = year ?? now.getFullYear();
-    const start = new Date(y, 0, 1, 0, 0, 0, 0);
-    const end = new Date(y, 11, 31, 23, 59, 59, 999);
+    const y = year ?? now.getUTCFullYear();
+    const start = new Date(Date.UTC(y, 0, 1));
+    const end = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999));
     const label = String(y);
     return { start, end, label, fileLabel: label };
   }
 
-  // weekly — use explicit start/end when provided, else 7 days ending on weekEnd
-  const end = parseDateOnly(weekEnd);
-  end.setHours(23, 59, 59, 999);
-  const start = weekStart ? parseDateOnly(weekStart) : new Date(end);
-  if (!weekStart) {
-    start.setDate(start.getDate() - 6);
-  }
-  start.setHours(0, 0, 0, 0);
-  const label = formatRangeLabel(start, end);
+  // weekly — UTC date-only bounds matching uploaded batch periods
+  const endDay = utcDateOnly(weekEnd);
+  const start = weekStart
+    ? utcDateOnly(weekStart)
+    : new Date(Date.UTC(endDay.getUTCFullYear(), endDay.getUTCMonth(), endDay.getUTCDate() - 6));
+  const end = new Date(endDay);
+  end.setUTCHours(23, 59, 59, 999);
+  const label = formatRangeLabel(start, endDay);
   return {
     start,
     end,
     label,
-    fileLabel: `${formatFileDate(start)}_to_${formatFileDate(end)}`,
+    fileLabel: `${formatFileDate(start)}_to_${formatFileDate(endDay)}`,
   };
 }
 
@@ -70,21 +88,17 @@ function resolveRecordReceivable(record, formatted) {
 }
 
 export async function fetchReportData(params) {
-  const { companyId, period, month, year, weekEnd, source, courierId } = params;
-  const { start, end } = resolveDateRange({ period, month, year, weekEnd });
+  const { companyId, period, month, year, weekStart, weekEnd, source, courierId } = params;
+  const { start, end } = resolveDateRange({ period, month, year, weekStart, weekEnd });
 
   const courierFilter = {
     companyId,
     ...(source ? { source } : {}),
   };
 
-  // Overlap: batch period intersects selected range
   const where = {
     courier: courierFilter,
-    batch: {
-      periodStart: { lte: end },
-      periodEnd: { gte: start },
-    },
+    batch: batchPeriodFilter(period, start, end),
     ...(courierId ? { courierId } : {}),
   };
 
@@ -101,7 +115,8 @@ export async function fetchReportData(params) {
   });
 
   return {
-    range: { start, end },
+    // Date-only strings avoid timezone shifting the "Showing:" label in the UI
+    range: { start: toDateOnlyString(start), end: toDateOnlyString(utcDateOnly(end)) },
     rows: records.map((r) => {
       const formatted = formatPaymentRecord(r);
       return {
